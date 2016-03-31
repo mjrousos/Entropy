@@ -2,7 +2,8 @@
 
 namespace TestApp
 {
-    [LogRequests]
+    // Sample contract implementation
+    [LogRequests] // Service behavior
     public class CalculatorService : ICalculatorService
     {
         [LogRequests] public double Add(double x, double y) => x + y;
@@ -11,6 +12,7 @@ namespace TestApp
         [LogRequests] public double Subtract(double x, double y) => x - y;
     }
 
+    // Sample contract
     [ServiceContract]
     public interface ICalculatorService
     {

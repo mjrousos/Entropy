@@ -5,6 +5,7 @@ using SOAPEndpointMiddleware;
 
 namespace TestApp
 {
+    // This sample class demonstrates a simple message inspector
     public class LoggingInspector : SOAPEndpointMiddleware.IDispatchMessageInspector, IParameterInspector
     {
         public object BeforeCall(string operationName, object[] inputs)
@@ -26,6 +27,7 @@ namespace TestApp
         public void BeforeSendReply(ref Message reply, object correlationState) { }
     }
 
+    // This sample class demonstrates a simple implementation of service behaviors
     public class LogRequestsAttribute : Attribute, IOperationBehavior, IServiceBehavior
     {
         public void ApplyDispatchBehavior(ServiceDescription service) => service.MessageInspectors.Add(new LoggingInspector());

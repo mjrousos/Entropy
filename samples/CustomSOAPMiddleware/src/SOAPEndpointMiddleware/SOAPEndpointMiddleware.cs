@@ -44,6 +44,13 @@ namespace SOAPEndpointMiddleware
                     requestMessage.Headers.Action = soapAction;
                 }
 
+                // Setup operation context and populate the remote endpoint property which some services may use
+                OperationContext.Current = new OperationContext(requestMessage);
+                // Check for null values in RemoteIpAddress since this isn't working in RC1. Will be fixed for RC2.
+                var remoteEndpoint = new RemoteEndpointMessageProperty(httpContext.Connection?.RemoteIpAddress?.ToString() ?? "::1", httpContext.Connection.RemotePort);
+                OperationContext.Current.IncomingMessageProperties.Add(RemoteEndpointMessageProperty.Name, remoteEndpoint);
+
+                // Find the requested action/operation
                 var operation = _service.Operations.Where(o => o.SoapAction.Equals(requestMessage.Headers.Action, StringComparison.Ordinal)).FirstOrDefault();
                 if (operation == null)
                 {
@@ -91,6 +98,9 @@ namespace SOAPEndpointMiddleware
                     var bodyWriter = new ServiceBodyWriter(operation.Contract.Namespace, operation.Name + "Response", resultName, responseObject);
                     responseMessage = Message.CreateMessage(_messageEncoder.MessageVersion, operation.ReplyAction, bodyWriter);
 
+                    // Apply context outgoing headers and properties
+                    AddOperationContextHeaders(responseMessage);
+
                     // Run message inspectors on the outgoing message
                     int messageInspectorIndex = 0;
                     foreach (var messageInspector in operation.Contract.Service.MessageInspectors)
@@ -103,10 +113,14 @@ namespace SOAPEndpointMiddleware
 
                     _messageEncoder.WriteMessage(responseMessage, httpContext.Response.Body);
                 }
+
+                // Cleanup
+                OperationContext.Current.Recycle();
                 requestMessage.Close();
             }
             else
             {
+                // If the path doesn't match, allow other pipeline middleware to process the request
                 await _next(httpContext);
             }
         }
@@ -135,6 +149,32 @@ namespace SOAPEndpointMiddleware
             }
 
             return arguments.ToArray();
+        }
+
+        private void AddOperationContextHeaders(Message responseMessage)
+        {
+            var context = OperationContext.Current;
+            if (context?.HasOutgoingMessageHeaders ?? false)
+            {
+                responseMessage.Headers.CopyHeadersFrom(context.OutgoingMessageHeaders);
+            }
+            if (context?.HasOutgoingMessageProperties ?? false)
+            {
+                foreach (var property in context.OutgoingMessageProperties)
+                {
+                    if (responseMessage.Properties.ContainsKey(property.Key))
+                    {
+                        responseMessage.Properties[property.Key] = property.Value;
+                    }
+                    else
+                    {
+                        responseMessage.Properties.Add(property.Key, property.Value);
+                    }
+                }
+                responseMessage.Properties.Via = context.OutgoingMessageProperties.Via;
+                responseMessage.Properties.AllowOutputBatching = context.OutgoingMessageProperties.AllowOutputBatching;
+                responseMessage.Properties.Encoder = context.OutgoingMessageProperties.Encoder;
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ using System.ServiceModel.Channels;
 
 namespace TestApp
 {
+    // A simple test class for calling the test web app hosting a SOAP endpoint
     public class Program
     {
         public static void Main(string[] args)
@@ -28,6 +29,8 @@ namespace TestApp
             Console.WriteLine($"{x} / {y} == {client.Divide(x, y)}");
         }
     }
+
+    // Simple WCF client
     class CalculatorServiceClient : ClientBase<ICalculatorService>
     {
         public CalculatorServiceClient(Binding binding, EndpointAddress remoteAddress) : base(binding, remoteAddress) { }
