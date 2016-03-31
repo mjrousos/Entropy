@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -38,7 +42,7 @@ namespace SOAPEndpointMiddleware
             MessageInspectors = new List<IDispatchMessageInspector>();
 
             // Find all IServiceBehavior attributes and apply them
-            foreach(var behavior in ServiceType.GetTypeInfo().GetCustomAttributes().Select(attr => attr as IServiceBehavior))
+            foreach (var behavior in ServiceType.GetTypeInfo().GetCustomAttributes().Select(attr => attr as IServiceBehavior))
             {
                 behavior?.ApplyDispatchBehavior(this);
             }
@@ -65,7 +69,7 @@ namespace SOAPEndpointMiddleware
             ContractType = contractType;
             Namespace = attribute.Namespace ?? "http://tempuri.org/"; // Namespace defaults to http://tempuri.org
             Name = attribute.Name ?? ContractType.Name; // Name defaults to the type name
-            
+
             var operations = new List<OperationDescription>();
             foreach (var operationMethodInfo in ContractType.GetTypeInfo().DeclaredMethods)
             {
@@ -75,7 +79,7 @@ namespace SOAPEndpointMiddleware
                 }
             }
             Operations = operations;
-        }  
+        }
     }
 
     public class OperationDescription
@@ -122,7 +126,7 @@ namespace SOAPEndpointMiddleware
                 var behaviors = serviceTypeMethod.GetCustomAttributes()
                     .Select(attr => attr as IOperationBehavior)
                     .Where(behavior => behavior != null);
-                
+
                 // Allow each to apply its behaviors
                 foreach (var behavior in behaviors)
                 {

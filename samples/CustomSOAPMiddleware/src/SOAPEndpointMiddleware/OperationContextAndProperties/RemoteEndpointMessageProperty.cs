@@ -1,4 +1,8 @@
-﻿// Simplified, sample version of RemoteEndpointMessageProperty to use in .NET Core.
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
+// Simplified, sample version of RemoteEndpointMessageProperty to use in .NET Core.
 // When not building against .NET Core, redirect to the built-in property type.
 
 #if NETCORE

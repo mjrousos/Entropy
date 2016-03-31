@@ -1,4 +1,7 @@
-﻿
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
 // Based on https://github.com/dotnet/wcf/blob/master/src/System.Private.ServiceModel/src/System/ServiceModel/OperationContext.cs
 // System.ServiceModel.OperationContext, although available in .NET Core, doesn't work because there are no usable constructors.
 // This (much-simplified, server-only) version of OperationContext has a non-ServiceChannel constructor so that our 
