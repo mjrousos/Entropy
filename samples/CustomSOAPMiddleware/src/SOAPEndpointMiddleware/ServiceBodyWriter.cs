@@ -8,6 +8,7 @@ using System.Xml;
 
 namespace SOAPEndpointMiddleware
 {
+    // A simple BodyWriter implementation for serializing action operator results into response message bodies
     public class ServiceBodyWriter : BodyWriter
     {
         private string _serviceNamespace;

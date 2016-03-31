@@ -24,11 +24,12 @@ namespace SOAPEndpointMiddleware
 
             var contracts = new List<ContractDescription>();
 
+            // Iterate interfaces implemented by the service type looking for [ServiceContract] interfaces
             foreach (var contractType in ServiceType.GetInterfaces())
             {
-                foreach (var serviceContract in contractType.GetTypeInfo().GetCustomAttributes<ServiceContractAttribute>())
+                foreach (var serviceContractAttribute in contractType.GetTypeInfo().GetCustomAttributes<ServiceContractAttribute>())
                 {
-                    contracts.Add(new ContractDescription(this, contractType, serviceContract));
+                    contracts.Add(new ContractDescription(this, contractType, serviceContractAttribute));
                 }
             }
 

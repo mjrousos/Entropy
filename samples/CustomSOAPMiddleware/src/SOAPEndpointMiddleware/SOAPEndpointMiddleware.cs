@@ -15,15 +15,12 @@ using System.Threading.Tasks;
 
 namespace SOAPEndpointMiddleware
 {
-    // This project can output the Class library as a NuGet Package.
-    // To enable this option, right-click on the project and select the Properties menu item. In the Build tab select "Produce outputs on build".
     public class SOAPEndpointMiddleware
     {
         // The middleware delegate to call after this one finishes processing
         private readonly RequestDelegate _next;
         private readonly string _endpointPath;
         private readonly MessageEncoder _messageEncoder;
-
         private readonly ServiceDescription _service;
 
         public SOAPEndpointMiddleware(RequestDelegate next, Type serviceType, string path, MessageEncoder encoder)
@@ -36,10 +33,9 @@ namespace SOAPEndpointMiddleware
 
         public async Task Invoke(HttpContext httpContext, IServiceProvider serviceProvider)
         {
+            // Check whether the request has come to the path associated with the service endpoint
             if (httpContext.Request.Path.Equals(_endpointPath, StringComparison.Ordinal))
             {
-                Message responseMessage;
-
                 // Read request message
                 var requestMessage = _messageEncoder.ReadMessage(httpContext.Request.Body, 0x10000, httpContext.Request.ContentType);
                 var soapAction = httpContext.Request.Headers["SOAPAction"].ToString().Trim('\"');
@@ -91,11 +87,10 @@ namespace SOAPEndpointMiddleware
                     parameterInspector.AfterCall(operation.Name, arguments, responseObject, parameterInspectorCorrelationStates[paramInspectorIndex++]);
                 }
 
-                if (operation.IsOneWay)
-                {
-                    responseMessage = null;
-                }
-                else
+                Message responseMessage = null;
+
+                // If a response is expected, create it
+                if (!operation.IsOneWay)
                 {
                     // Create response message
                     var resultName = operation.DispatchMethod.ReturnParameter.GetCustomAttribute<MessageParameterAttribute>()?.Name ?? operation.Name + "Result";
@@ -104,17 +99,21 @@ namespace SOAPEndpointMiddleware
 
                     // Apply context outgoing headers and properties
                     AddOperationContextHeaders(responseMessage);
+                }
 
-                    // Run message inspectors on the outgoing message
-                    int messageInspectorIndex = 0;
-                    foreach (var messageInspector in operation.Contract.Service.MessageInspectors)
-                    {
-                        messageInspector.BeforeSendReply(ref responseMessage, messageInspectorCorrelationStates[messageInspectorIndex++]);
-                    }
+                // Run message inspectors on the outgoing message
+                // As per MSDN docs, they should run even if the message is null
+                int messageInspectorIndex = 0;
+                foreach (var messageInspector in operation.Contract.Service.MessageInspectors)
+                {
+                    messageInspector.BeforeSendReply(ref responseMessage, messageInspectorCorrelationStates[messageInspectorIndex++]);
+                }
 
-                    httpContext.Response.ContentType = httpContext.Request.ContentType; // _messageEncoder.ContentType;
+                if (responseMessage != null)
+                {
+                    // If a response was produced, write it to the HTTP context's response
+                    httpContext.Response.ContentType = _messageEncoder.ContentType;
                     httpContext.Response.Headers["SOAPAction"] = responseMessage.Headers.Action;
-
                     _messageEncoder.WriteMessage(responseMessage, httpContext.Response.Body);
                 }
 
@@ -140,16 +139,46 @@ namespace SOAPEndpointMiddleware
                 // Find the element for the operation's data
                 xmlReader.ReadStartElement(operation.Name, operation.Contract.Namespace);
 
-                for (int i = 0; i < parameters.Length; i++)
-                {
-                    var parameterName = parameters[i].GetCustomAttribute<MessageParameterAttribute>()?.Name ?? parameters[i].Name;
-                    xmlReader.MoveToStartElement(parameterName, operation.Contract.Namespace);
-                    if (xmlReader.IsStartElement(parameterName, operation.Contract.Namespace))
+#if STRICT_PARAMETER_MATCHING
+                    for (int i = 0; i < parameters.Length; i++)
                     {
-                        var serializer = new DataContractSerializer(parameters[i].ParameterType, parameterName, operation.Contract.Namespace);
-                        arguments.Add(serializer.ReadObject(xmlReader, verifyObjectName: true));
+                        var parameter = parameters[i];
+                        var parameterName = parameter.GetCustomAttribute<MessageParameterAttribute>()?.Name ?? parameter.Name;
+                        xmlReader.MoveToStartElement(parameterName, operation.Contract.Namespace);
+                        if (xmlReader.IsStartElement(parameterName, operation.Contract.Namespace)) 
+                        {
+                            var serializer = new DataContractSerializer(parameter.ParameterType, parameterName, operation.Contract.Namespace);
+                            arguments.Add(serializer.ReadObject(xmlReader, verifyObjectName: true));
+                        }
+                    }
+#else // STRICT_PARAMETER_MATCHING
+                // Prepopulate arguments with default values (in case not all are specified)
+                foreach (ParameterInfo p in parameters)
+                {
+                    arguments.Add(p.HasDefaultValue ? p.DefaultValue : null);
+                }
+
+                // Iterate through arguments
+                // Note that this doesn't assume parameters appear in a particular order.
+                // .NET WCF serialization is consistent in its argument ordering, but 
+                // some other SOAP serializers are not.
+                xmlReader.MoveToElement();
+                while (xmlReader.IsStartElement())
+                {
+                    var parameter = GetParameter(parameters, xmlReader.LocalName);
+                    if (parameter != null)
+                    {
+                        var serializer = new DataContractSerializer(parameter.ParameterType);
+                        // Note - This currently doesn't check namespace. If that turns out to be too loose, the parameter.Name and serviceNamespace
+                        //        could be passed here.
+                        arguments[parameter.Position] = serializer.ReadObject(xmlReader, false);
+                    }
+                    else
+                    {
+                        xmlReader.ReadOuterXml();
                     }
                 }
+#endif // STRICT_PARAMETER_MATCHING
             }
 
             return arguments.ToArray();
@@ -160,10 +189,12 @@ namespace SOAPEndpointMiddleware
             var context = OperationContext.Current;
             if (context?.HasOutgoingMessageHeaders ?? false)
             {
+                // If headers were specified in the operation context, apply them
                 responseMessage.Headers.CopyHeadersFrom(context.OutgoingMessageHeaders);
             }
             if (context?.HasOutgoingMessageProperties ?? false)
             {
+                // Similarly add/update properties based on data in the operation context
                 foreach (var property in context.OutgoingMessageProperties)
                 {
                     if (responseMessage.Properties.ContainsKey(property.Key))
@@ -175,10 +206,39 @@ namespace SOAPEndpointMiddleware
                         responseMessage.Properties.Add(property.Key, property.Value);
                     }
                 }
+
                 responseMessage.Properties.Via = context.OutgoingMessageProperties.Via;
                 responseMessage.Properties.AllowOutputBatching = context.OutgoingMessageProperties.AllowOutputBatching;
                 responseMessage.Properties.Encoder = context.OutgoingMessageProperties.Encoder;
             }
+        }
+
+        // In the case of loose argument/parameter matching, this method will (generously) attempt to match
+        // a given string to a parameter from a service's operation method.
+        private ParameterInfo GetParameter(ParameterInfo[] parameters, string name)
+        {
+            // Check for [MessageParameter(Name=...)] attribute
+            var ret = parameters.Where(p => p.GetCustomAttribute<MessageParameterAttribute>()?.Name.Equals(name, StringComparison.Ordinal) ?? false).FirstOrDefault();
+
+            // Check parameter name
+            if (ret == null)
+            {
+                ret = parameters.Where(p => p.Name.Equals(name, StringComparison.Ordinal)).FirstOrDefault();
+            }
+
+            // Check for [MessageParameter(Name=...)] attribute (ignoring case)
+            if (ret == null)
+            {
+                ret = parameters.Where(p => p.GetCustomAttribute<MessageParameterAttribute>()?.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ?? false).FirstOrDefault();
+            }
+
+            // Check parameter name (ignoring case)
+            if (ret == null)
+            {
+                ret = parameters.Where(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+            }
+
+            return ret;
         }
     }
 }

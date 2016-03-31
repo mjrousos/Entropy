@@ -3,12 +3,12 @@
 // See the LICENSE file in the project root for more information.
 
 // Simplified, sample version of RemoteEndpointMessageProperty to use in .NET Core.
-// When not building against .NET Core, redirect to the built-in property type.
+// This property is automatically set for all incoming SOAP messages for use by services.
 
-#if NETCORE
+using System;
 using System.Net;
 
-namespace System.ServiceModel.Channels
+namespace SOAPEndpointMiddleware
 {
     public sealed class RemoteEndpointMessageProperty
     {
@@ -33,7 +33,3 @@ namespace System.ServiceModel.Channels
         }
     }
 }
-#else // NETCORE
-using System.Runtime.CompilerServices;
-[assembly: TypeForwardedTo(typeof(System.ServiceModel.Channels.RemoteEndpointMessageProperty))]
-#endif // NETCORE
